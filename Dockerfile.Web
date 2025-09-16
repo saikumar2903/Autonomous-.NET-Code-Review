@@ -1,0 +1,38 @@
+# Use the official .NET 8 SDK image for building
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# Copy solution and project files
+COPY AutonomousCodeReview.sln ./
+COPY src/AutonomousCodeReview.Core/AutonomousCodeReview.Core.csproj ./src/AutonomousCodeReview.Core/
+COPY src/AutonomousCodeReview.Api/AutonomousCodeReview.Api.csproj ./src/AutonomousCodeReview.Api/
+COPY src/AutonomousCodeReview.Web/AutonomousCodeReview.Web.csproj ./src/AutonomousCodeReview.Web/
+
+# Restore dependencies
+RUN dotnet restore
+
+# Copy the rest of the application
+COPY . .
+
+# Build the Web project
+RUN dotnet build src/AutonomousCodeReview.Web/AutonomousCodeReview.Web.csproj -c Release -o /app/build
+
+# Publish the Web application
+RUN dotnet publish src/AutonomousCodeReview.Web/AutonomousCodeReview.Web.csproj -c Release -o /app/publish
+
+# Use the official .NET 8 runtime image
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+
+# Copy the published application
+COPY --from=build /app/publish .
+
+# Expose port
+EXPOSE 8080
+
+# Set environment variables
+ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+
+# Start the application
+ENTRYPOINT ["dotnet", "AutonomousCodeReview.Web.dll"]

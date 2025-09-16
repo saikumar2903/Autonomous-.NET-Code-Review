@@ -1,0 +1,266 @@
+@page "/code-review"
+@using AutonomousCodeReview.Core.Models
+@using AutonomousCodeReview.Core.Interfaces
+@inject IAgentOrchestrator Orchestrator
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Autonomous Code Review</PageTitle>
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="display-4 text-center mb-4">
+                <i class="fas fa-robot"></i> Autonomous Code Review
+            </h1>
+            <p class="lead text-center">AI-powered multi-agent code review system</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-code"></i> Submit Code for Review</h3>
+                </div>
+                <div class="card-body">
+                    <EditForm Model="reviewRequest" OnValidSubmit="SubmitReview">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary class="text-danger" />
+
+                        <div class="mb-3">
+                            <label class="form-label">Repository URL</label>
+                            <InputText @bind-Value="reviewRequest.RepositoryUrl" class="form-control" 
+                                      placeholder="https://github.com/user/repo" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Branch Name</label>
+                            <InputText @bind-Value="reviewRequest.BranchName" class="form-control" 
+                                      placeholder="main" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Files to Review (optional)</label>
+                            <InputTextArea @bind-Value="filesInput" class="form-control" rows="3"
+                                          placeholder="Leave empty for all files, or specify one per line:&#10;src/Program.cs&#10;src/Controllers/HomeController.cs" />
+                        </div>
+
+                        <button type="submit" class="btn btn-primary" disabled="@isProcessing">
+                            @if (isProcessing)
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                                <span>Processing...</span>
+                            }
+                            else
+                            {
+                                <i class="fas fa-search"></i>
+                                <span>Start Review</span>
+                            }
+                        </button>
+                    </EditForm>
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h3><i class="fas fa-bolt"></i> Quick Code Review</h3>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Paste your code snippet</label>
+                        <textarea @bind="quickReviewCode" class="form-control code-editor" rows="10"
+                                  placeholder="// Paste your C# code here for quick review...&#10;public class Example&#10;{&#10;    public void Method()&#10;    {&#10;        // Your code here&#10;    }&#10;}"></textarea>
+                    </div>
+                    <button class="btn btn-success" @onclick="SubmitQuickReview" disabled="@isProcessing">
+                        <i class="fas fa-zap"></i> Quick Review
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            @if (reviewResult != null)
+            {
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h3><i class="fas fa-clipboard-list"></i> Review Results</h3>
+                        <span class="badge bg-@(GetScoreBadgeColor(reviewResult.QualityScore)) fs-6">
+                            Quality Score: @reviewResult.QualityScore/100
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <strong>Summary:</strong>
+                            <p class="text-muted">@reviewResult.Summary</p>
+                        </div>
+
+                        @if (reviewResult.SuggestedImprovements.Count > 0)
+                        {
+                            <div class="mb-3">
+                                <strong>Suggested Improvements:</strong>
+                                <ul class="list-group list-group-flush">
+                                    @foreach (var improvement in reviewResult.SuggestedImprovements)
+                                    {
+                                        <li class="list-group-item">
+                                            <i class="fas fa-lightbulb text-warning"></i> @improvement
+                                        </li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+
+                        @if (reviewResult.Comments.Count > 0)
+                        {
+                            <div class="mb-3">
+                                <strong>Review Comments (@reviewResult.Comments.Count):</strong>
+                                <div class="mt-2" style="max-height: 400px; overflow-y: auto;">
+                                    @foreach (var comment in reviewResult.Comments.OrderBy(c => c.FileName).ThenBy(c => c.LineNumber))
+                                    {
+                                        <div class="alert alert-@GetSeverityClass(comment.Severity) mb-2">
+                                            <div class="d-flex justify-content-between align-items-start">
+                                                <div>
+                                                    <strong>@comment.FileName:@comment.LineNumber</strong>
+                                                    <span class="badge bg-secondary ms-2">@comment.Severity</span>
+                                                    <p class="mb-0 mt-1">@comment.Message</p>
+                                                </div>
+                                                <small class="text-muted">@comment.AgentName</small>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-success">
+                                <i class="fas fa-check-circle"></i> No issues found! Great job!
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else if (isProcessing)
+            {
+                <div class="card">
+                    <div class="card-body text-center">
+                        <div class="spinner-border text-primary mb-3" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <h5>AI agents are analyzing your code...</h5>
+                        <p class="text-muted">This may take a few moments</p>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .code-editor {
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 14px;
+    }
+    
+    .card {
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border: none;
+    }
+    
+    .card-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-bottom: none;
+    }
+    
+    .display-4 {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+</style>
+
+@code {
+    private CodeReviewRequest reviewRequest = new();
+    private CodeReviewResult? reviewResult;
+    private string filesInput = string.Empty;
+    private string quickReviewCode = string.Empty;
+    private bool isProcessing = false;
+
+    private async Task SubmitReview()
+    {
+        isProcessing = true;
+        reviewResult = null;
+
+        try
+        {
+            // Parse files input
+            if (!string.IsNullOrWhiteSpace(filesInput))
+            {
+                reviewRequest.FilesToReview = filesInput
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(f => f.Trim())
+                    .Where(f => !string.IsNullOrEmpty(f))
+                    .ToArray();
+            }
+
+            reviewResult = await Orchestrator.ProcessCodeReviewAsync(reviewRequest);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task SubmitQuickReview()
+    {
+        if (string.IsNullOrWhiteSpace(quickReviewCode))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Please enter some code to review");
+            return;
+        }
+
+        isProcessing = true;
+        reviewResult = null;
+
+        try
+        {
+            var quickRequest = new CodeReviewRequest
+            {
+                RepositoryUrl = "Quick Review",
+                FilesToReview = new[] { "snippet.cs" }
+            };
+
+            reviewResult = await Orchestrator.ProcessCodeReviewAsync(quickRequest);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private string GetSeverityClass(ReviewSeverity severity) => severity switch
+    {
+        ReviewSeverity.Critical => "danger",
+        ReviewSeverity.Error => "danger",
+        ReviewSeverity.Warning => "warning",
+        ReviewSeverity.Info => "info",
+        _ => "secondary"
+    };
+
+    private string GetScoreBadgeColor(int score) => score switch
+    {
+        >= 90 => "success",
+        >= 70 => "warning",
+        >= 50 => "orange",
+        _ => "danger"
+    };
+}
